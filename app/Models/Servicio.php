@@ -1,49 +1,77 @@
 <?php
 
-/**
- * Created by Reliese Model.
- */
-
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
-/**
- * Class Servicio
- * 
- * @property int $id
- * @property string|null $Nombre
- * @property float|null $Precio
- * @property int|null $Detalle_servicioID
- * 
- * @property DetalleServicio $detalle_servicio
- * @property DetalleCitum $detalle_citum
- *
- * @package App\Models
- */
 class Servicio extends Model
 {
-	protected $table = 'servicio';
-	public $timestamps = false;
+    use HasFactory, SoftDeletes;
 
-	protected $casts = [
-		'Precio' => 'float',
-		'Detalle_servicioID' => 'int'
-	];
+    protected $fillable = [
+        'codigo',
+        'nombre',
+        'descripcion',
+        'precio',
+        'duracion_minutos',
+        'activo',
+    ];
 
-	protected $fillable = [
-		'Nombre',
-		'Precio',
-		'Detalle_servicioID'
-	];
+    protected $casts = [
+        'precio' => 'decimal:2',
+        'duracion_minutos' => 'integer',
+        'activo' => 'boolean',
+    ];
 
-	public function detalle_servicio()
-	{
-		return $this->belongsTo(DetalleServicio::class, 'id');
-	}
+    // Relaciones
+    public function detalleCitas()
+    {
+        return $this->hasMany(DetalleCita::class);
+    }
 
-	public function detalle_citum()
-	{
-		return $this->hasOne(DetalleCitum::class, 'id');
-	}
+    public function citas()
+    {
+        return $this->belongsToMany(Cita::class, 'detalle_citas')
+                    ->withPivot(['cantidad', 'precio_unitario', 'subtotal'])
+                    ->withTimestamps();
+    }
+
+    // Scopes
+    public function scopeActivos($query)
+    {
+        return $query->where('activo', true);
+    }
+
+    // Métodos
+    public function generarCodigo()
+    {
+        if (!$this->codigo) {
+            $this->codigo = 'SERV-' . str_pad($this->id, 6, '0', STR_PAD_LEFT);
+            $this->save();
+        }
+        return $this->codigo;
+    }
+
+    // Atributos calculados
+    public function getVecesUtilizadoAttribute()
+    {
+        return $this->detalleCitas()->count();
+    }
+
+    public function getTotalVendidoAttribute()
+    {
+        return $this->detalleCitas()->sum('subtotal');
+    }
+
+    // Eventos
+    protected static function boot()
+    {
+        parent::boot();
+
+        static::creating(function ($servicio) {
+            $servicio->codigo = 'SERV-' . str_pad(Servicio::max('id') + 1, 6, '0', STR_PAD_LEFT);
+        });
+    }
 }

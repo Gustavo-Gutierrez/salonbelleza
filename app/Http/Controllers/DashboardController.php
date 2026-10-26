@@ -2,54 +2,96 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Request;
-use App\Models\Dashboard;
-use Illuminate\Support\Facades\DB;
 use App\Models\User;
-use LaravelDaily\LaravelCharts\Classes\LaravelChart;
-use App\Models\Cliente;
-use App\Models\Citum;
+use App\Models\Cita;
+use App\Models\Recibo;
+use App\Models\Producto;
+use App\Models\Gasto;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Carbon\Carbon;
 
 class DashboardController extends Controller
 {
     public function index()
     {
-    $chart_options = [
-        'chart_title' => 'transacciones de citas por cliente',
-        'chart_type' => 'bar',
-        'report_type' => 'group_by_relationship',
-        'model' => 'App\Models\Citum',
-    
-        'relationship_name' => 'cliente', // represents function user() on Transaction model
-        'group_by_field' => 'Nombre', // users.name
-    
+        // Fechas
+        $hoy = Carbon::today();
+        $inicioMes = Carbon::now()->startOfMonth();
+        $finMes = Carbon::now()->endOfMonth();
+        $inicioSemana = Carbon::now()->startOfWeek();
+        $finSemana = Carbon::now()->endOfWeek();
         
+        // Estadísticas generales
+        $estadisticas = [
+            // Citas
+            'citas_hoy' => Cita::whereDate('fecha', $hoy)->count(),
+            'citas_pendientes' => Cita::where('estado', 'pendiente')->count(),
+            'citas_confirmadas' => Cita::where('estado', 'confirmada')->count(),
+            'citas_completadas_mes' => Cita::where('estado', 'completada')
+                ->whereBetween('fecha', [$inicioMes, $finMes])
+                ->count(),
+            
+            // Clientes
+            'total_clientes' => User::clientes()->count(),
+            'clientes_nuevos_mes' => User::clientes()
+                ->whereBetween('created_at', [$inicioMes, $finMes])
+                ->count(),
+            
+            // Finanzas
+            'ingresos_hoy' => Recibo::whereDate('fecha', $hoy)->sum('total') ?? 0,
+            'ingresos_semana' => Recibo::whereBetween('fecha', [$inicioSemana, $finSemana])->sum('total') ?? 0,
+            'ingresos_mes' => Recibo::whereBetween('fecha', [$inicioMes, $finMes])->sum('total') ?? 0,
+            
+            // Inventario
+            'productos_bajo_stock' => Producto::whereColumn('stock_actual', '<=', 'stock_minimo')->count(),
+            'productos_agotados' => Producto::where('stock_actual', 0)->count(),
+            
+            // Gastos
+            'gastos_mes' => Gasto::whereBetween('fecha', [$inicioMes, $finMes])->sum('monto') ?? 0,
+        ];
         
-        'filter_field' => 'Fecha', 
-        'filter_days' => 30, // show only transactions for last 30 days
-        'filter_period' => 'week', // show only transactions for this week
-    ];
-    $chart1 = new LaravelChart($chart_options);
-    
-    $chart_options = [
-        'chart_title' => 'transacciones de citas por trabajadora',
-        'chart_type' => 'line',
-        'report_type' => 'group_by_relationship',
-        'model' => 'App\Models\Citum',
-    
-        'relationship_name' => 'trabajadora', // represents function user() on Transaction model
-        'group_by_field' => 'Nombre', // users.name
-    
+        // Citas de hoy
+        $citasHoy = Cita::with(['cliente', 'empleado', 'detalleCitas.servicio'])
+            ->whereDate('fecha', $hoy)
+            ->orderBy('hora_inicio')
+            ->get();
         
+        // Citas recientes
+        $citasRecientes = Cita::with(['cliente', 'empleado'])
+            ->where('estado', '!=', 'cancelada')
+            ->orderBy('fecha', 'desc')
+            ->orderBy('hora_inicio', 'desc')
+            ->limit(10)
+            ->get();
         
-        'filter_field' => 'Fecha', 
-        'filter_days' => 30, // show only transactions for last 30 days
-        'filter_period' => 'week', // show only transactions for this week
-    ];
-    $chart2 = new LaravelChart($chart_options);
-
-    return view('Dashboard.grafico', compact('chart1','chart2'));
-    
-
-}
+        // Productos bajo stock
+        $productosBajoStock = Producto::with('movimientos')
+            ->whereColumn('stock_actual', '<=', 'stock_minimo')
+            ->orderBy('stock_actual')
+            ->limit(10)
+            ->get();
+        
+        // Top servicios más solicitados
+        $topServicios = DB::table('detalle_citas')
+            ->join('servicios', 'detalle_citas.servicio_id', '=', 'servicios.id')
+            ->select(
+                'servicios.nombre',
+                DB::raw('COUNT(*) as total_citas'),
+                DB::raw('SUM(detalle_citas.cantidad) as total_servicios'),
+                DB::raw('SUM(detalle_citas.subtotal) as total_ingresos')
+            )
+            ->groupBy('servicios.id', 'servicios.nombre')
+            ->orderBy('total_ingresos', 'desc')
+            ->limit(5)
+            ->get();
+        
+        return view('dashboard.index', compact(
+            'estadisticas',
+            'citasHoy',
+            'citasRecientes',
+            'productosBajoStock',
+            'topServicios'
+        ));
+    }
 }

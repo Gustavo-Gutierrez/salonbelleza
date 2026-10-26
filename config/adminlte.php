@@ -330,7 +330,7 @@ return [
         ],
         [
             'text' => 'Citas',
-            'url'  => 'cita',
+            'url'  => 'citas',
             'icon' => 'fas fa-fw fa-desktop',
 
         ],

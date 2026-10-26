@@ -1,72 +1,95 @@
 <?php
 
-/**
- * Created by Reliese Model.
- */
-
 namespace App\Models;
 
-use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
-/**
- * Class Recibo
- * 
- * @property int $id
- * @property Carbon|null $Fecha
- * @property float|null $Total
- * @property int $CitaID
- * @property int $ClienteID
- * @property int|null $DetalleReciboID
- * @property int $TrabajadoraID
- * 
- * @property Citum $citum
- * @property Cliente $cliente
- * @property Detallerecibo $detallerecibo
- * @property Trabajadora $trabajadora
- *
- * @package App\Models
- */
 class Recibo extends Model
 {
-	protected $table = 'recibo';
-	public $timestamps = false;
+    use HasFactory, SoftDeletes;
 
-	protected $casts = [
-		'Fecha' => 'datetime',
-		'Total' => 'float',
-		'CitaID' => 'int',
-		'ClienteID' => 'int',
-		'DetalleReciboID' => 'int',
-		'TrabajadoraID' => 'int'
-	];
+    protected $fillable = [
+        'codigo',
+        'fecha',
+        'subtotal',
+        'descuento',
+        'iva',
+        'total',
+        'metodo_pago',
+        'observaciones',
+        'qr_code',
+        'cita_id',
+        'cliente_id',
+        'empleado_id',
+        'user_id',
+    ];
 
-	protected $fillable = [
-		'Fecha',
-		'Total',
-		'CitaID',
-		'ClienteID',
-		'DetalleReciboID',
-		'TrabajadoraID'
-	];
+    protected $casts = [
+        'fecha' => 'date',
+        'subtotal' => 'decimal:2',
+        'descuento' => 'decimal:2',
+        'iva' => 'decimal:2',
+        'total' => 'decimal:2',
+    ];
 
-	public function citum()
-	{
-		return $this->belongsTo(Citum::class, 'id');
-	}
+    // Relaciones
+    public function cita()
+    {
+        return $this->belongsTo(Cita::class);
+    }
 
-	public function cliente()
-	{
-		return $this->belongsTo(Cliente::class, 'id');
-	}
+    public function cliente()
+    {
+        return $this->belongsTo(User::class, 'cliente_id');
+    }
 
-	public function detallerecibo()
-	{
-		return $this->belongsTo(Detallerecibo::class, 'id');
-	}
+    public function empleado()
+    {
+        return $this->belongsTo(User::class, 'empleado_id');
+    }
 
-	public function trabajadora()
-	{
-		return $this->belongsTo(Trabajadora::class, 'id');
-	}
+    public function usuario()
+    {
+        return $this->belongsTo(User::class, 'user_id');
+    }
+
+    // Scopes
+    public function scopeEntreFechas($query, $inicio, $fin)
+    {
+        return $query->whereBetween('fecha', [$inicio, $fin]);
+    }
+
+    public function scopePorMetodoPago($query, $metodo)
+    {
+        return $query->where('metodo_pago', $metodo);
+    }
+
+    public function scopePorEmpleado($query, $empleadoId)
+    {
+        return $query->where('empleado_id', $empleadoId);
+    }
+
+    // Métodos
+    public function calcularTotales()
+    {
+        if ($this->cita) {
+            $this->subtotal = $this->cita->total;
+            $this->descuento = $this->cita->descuento;
+            $this->iva = $this->subtotal * 0.16; // 16% IVA (ajustar según país)
+            $this->total = ($this->subtotal - $this->descuento) + $this->iva;
+        }
+    }
+
+    // Eventos
+    protected static function boot()
+    {
+        parent::boot();
+
+        static::creating(function ($recibo) {
+            $recibo->codigo = 'REC-' . date('Ymd') . '-' . str_pad(Recibo::max('id') + 1, 6, '0', STR_PAD_LEFT);
+            $recibo->calcularTotales();
+        });
+    }
 }
